@@ -1,5 +1,5 @@
+{-# OPTIONS -Wall #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# OPTIONS -Wall -v #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module RobodyCircuit where
 

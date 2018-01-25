@@ -21,6 +21,11 @@ description:         Please see the README on Github at <https://github.com/anka
 
 dependencies:
 - base >= 4.7 && < 5
+- mtl
+- cereal
+- bytestring
+- containers
+- data-default-class
 
 library:
   source-dirs: src
