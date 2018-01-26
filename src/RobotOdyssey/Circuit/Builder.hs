@@ -56,8 +56,8 @@ findInOut :: [Gate] -> [Wire] -> [InOrOut]
 findInOut gates wires = inOrOut <$> [0..7]
   where
     -- debug = trace "in" $ traceShow inputs $ trace "out" $ traceShow outputs $ undefined
-    inOrOut n | elem (Ptr n) inputs  = In
-              | elem (Ptr n) outputs = Out
+    inOrOut n | Ptr n `elem` inputs  = In
+              | Ptr n `elem` outputs = Out
               | otherwise            = Neither
     gateInputs  = toListOf (traverse . _input . _input_ptr) gates
     gateOutputs = toListOf (traverse . _output . traverse) gates

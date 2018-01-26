@@ -1,6 +1,45 @@
+
+{-|
+
+A monadic circuit builder where each component return a pointer
+to its output. This is reversed from 'RobotOdyssey.Circuit.Builder'
+where each component takes a list of output and return its inputs.
+
+The easiest way to build a circuit is using the '(&+)', etc. combinators.
+(see section ???)
+The "+"/"-" signs says if the output is initially hot or cold.
+
+For example:
+
+> circuit = connectOut 3 $ i 1 &- i 2
+
+creates a circuit that connects the first and second input of the circuit
+to the inputs of an and-gate and the third one to its output.
+
+-----
+
+# Cyclic circuits
+
+To create a cyclic circuit, use the RecursiveDo extension
+and then connect the inputs of a later circuit to an earlier one.
+
+Example:
+
+> {-# LANGUAGE RecursiveDo #-}
+> -- | A 3-clock made of not-gates.
+> notClock :: Builder SPtr
+> notClock = mdo
+>   out <- notOn . notOff . notOn $ out
+>   return out
+
+
+-}
+
+-- TODO: Screenshots of examples
+
 {-# OPTIONS -Wall #-}
 {-# OPTIONS -Wno-unused-matches #-}
--- {-# OPTIONS -WUnusedImports #-}
+{-# OPTIONS -Wno-unused-imports #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -18,9 +57,9 @@ import qualified Data.Map.Lazy as Map
 import Data.Map.Lazy (Map)
 import Control.Monad.State.Lazy
 
--- import NanoLens
+import NanoLens
 import RobotOdyssey.Circuit
--- import qualified CircuitBuilder
+import qualified RobotOdyssey.Circuit.Builder as CB
 
 -- import qualified Data.FixedList as FL
 import Data.FixedList (FixedList8)
@@ -52,6 +91,11 @@ defBuild = def
 -- data Op a = Op GateState a deriving (Show, Eq)
 type GateMap = Map SPtr SGate
 data SInput = External Int | None | GatePtr SPtr deriving (Show, Eq)
+
+_sinputGPtr :: Traversal' SInput SPtr
+_sinputGPtr k (GatePtr p) = GatePtr <$> k p
+_sinputGPtr _ x           = pure x
+
 data SGate =
     SAnd GateState SInput SInput
   | SOr GateState SInput SInput
@@ -60,13 +104,47 @@ data SGate =
   | SFlipFlop GateState GateState SInput SInput
   deriving (Show, Eq)
 
+-- | A 'Traversal\'' to each input in a gate.
+_sgateInput :: Traversal' SGate SInput
+_sgateInput k (SAnd      gs      i1 i2) = SAnd gs <$> k i1 <*> k i2
+_sgateInput k (SOr       gs      i1 i2) = SOr  gs <$> k i1 <*> k i2
+_sgateInput k (SXor      gs      i1 i2) = SXor gs <$> k i1 <*> k i2
+_sgateInput k (SNot      gs      i1   ) = SNot gs <$> k i1
+_sgateInput k (SFlipFlop gs1 gs2 i1 i2) = SFlipFlop gs1 gs2 <$> k i1 <*> k i2
+
+
 type Builder a = State BuilderStateSimple a
 
 -- * Use builder
 
-
+-- | Extract the list of circuits from a SimpleBuilder
 runBuilder :: Builder a -> (a, BuilderStateSimple)
 runBuilder x = runState x def
+
+generateABuilder :: BuilderStateSimple -> CB.Builder ()
+generateABuilder (Bs _pos _state gates _wires) = mdo
+    ans <- Map.traverseWithKey (generateGate . ptrsFrom ans) gates
+    return ()
+  where
+    sptrsFrom :: SPtr -> [(SPtr,Int)]
+    sptrsFrom ptr = [ (k,n) | (k, v) <- Map.toList gates, (n,inN) <- zip [0,1] $ toListOf (_sgateInput._sinputGPtr) v, inN == ptr]
+
+    -- | List of all pointers from a specific gate
+    ptrsFrom :: Map SPtr [Ptr] -> SPtr -> [Ptr]
+    ptrsFrom ans key = map (findPtr ans) $ sptrsFrom key
+
+    findPtr :: Map SPtr [Ptr] -> (SPtr, Int) -> Ptr
+    findPtr mp (k, ix) = (mp Map.! k) !! ix
+
+-- | Given a 'SGate' and some additional data, builds a 'Gate' and returns
+--   a list of pointers to its inputs
+generateGate :: [Ptr]          -- ^ A list of all gates that point from this gate
+             -> SGate          -- ^ The gate to generate
+             -> CB.Builder [Ptr]
+generateGate outs (SAnd gs _ _) = do
+  (i1, i2) <- CB.andGate gs gs outs
+  return [i1,i2]
+generateGate outs gate = undefined
 
 -- * Internal stuff
 
@@ -188,8 +266,8 @@ i = External
 -- | Connect a connector to an external output.
 -- In case of multiple conectors connecting to the same wire,
 -- the last one will be used
-out :: IsInput a => a -> Builder ()
-out = undefined
+connectOut :: IsInput a => Int -> a -> Builder ()
+connectOut = undefined
 
 -- * Examples
 
@@ -202,7 +280,12 @@ xAndYOrZ x y z = do
 xAndYOrZ' :: (IsInput x, IsInput y, IsInput z) => x -> y -> z -> Builder SPtr
 xAndYOrZ' x y z = ( x &- y ) |- z
 
-
+-- | A 3-clock made of not-gates.
+-- Example of gate cycles
+notClock :: Builder SPtr
+notClock = mdo
+  out <- notOn . notOff . notOn $ out
+  return out
 
 
 
