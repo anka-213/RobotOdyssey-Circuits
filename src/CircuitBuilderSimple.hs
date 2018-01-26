@@ -1,7 +1,8 @@
+{-# OPTIONS -Wall #-}
+{-# OPTIONS -Wno-unused-matches #-}
+-- {-# OPTIONS -WUnusedImports #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{-# OPTIONS -Wall #-}
--- {-# OPTIONS -WUnusedImports #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
@@ -93,7 +94,10 @@ instance Num (Builder SInput) where
   abs      = error "Not applicable"
   signum   = error "Not applicable"
 
+liftJoin1 :: Monad m => m a -> (a -> m b) -> m b
 liftJoin1 f a = f >>= a
+
+liftJoin2 :: Monad m => (a1 -> a2 -> m a3) -> m a1 -> m a2 -> m a3
 liftJoin2 f a b = join $ f <$> a <*> b
 
 -- | Given two gate builders, return an and-gate with initial out-state hot

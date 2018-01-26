@@ -59,12 +59,12 @@ findInOut gates wires = inOrOut <$> [0..7]
     inOrOut n | elem (Ptr n) inputs  = In
               | elem (Ptr n) outputs = Out
               | otherwise            = Neither
-    gateInputs = toListOf (traverse . _input . _input_ptr) gates
+    gateInputs  = toListOf (traverse . _input . _input_ptr) gates
     gateOutputs = toListOf (traverse . _output . traverse) gates
-    wireInputs = wireFrom <$> wires
+    wireInputs  = wireFrom <$> wires
     wireOutputs = concat $ wireTo <$> wires
-    outputs = gateOutputs ++ wireOutputs
-    inputs = gateInputs ++ wireInputs
+    outputs     = gateOutputs ++ wireOutputs
+    inputs      = gateInputs ++ wireInputs
 
 emptyDocs :: Description
 emptyDocs = (B8.replicate 18 ' ', [B8.pack (show n) <> B8.replicate 33 ' ' | n <- [1..8::Int]])

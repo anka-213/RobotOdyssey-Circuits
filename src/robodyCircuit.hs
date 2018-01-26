@@ -18,6 +18,7 @@ import Debug.Trace
 import NanoLens
 import Data.FixedList
 
+
 -- | This module is a parser and generator for saved circuits for the game Robot Odyssey
 
 -- * Main interface
