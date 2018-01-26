@@ -1,7 +1,7 @@
 {-# OPTIONS -Wall #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
-module CircuitBuilder where
+module RobotOdyssey.Circuit.Builder where
 
 -- import Debug.Trace
 -- import qualified Data.ByteString as B
@@ -11,7 +11,7 @@ import Data.Monoid
 import Control.Monad.State.Lazy
 
 import NanoLens
-import RobodyCircuit
+import RobotOdyssey.Circuit
 import qualified Data.FixedList as FL
 import Data.FixedList (FixedList8)
 

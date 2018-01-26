@@ -1,7 +1,7 @@
 {-# OPTIONS -Wall #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module RobodyCircuit where
+module RobotOdyssey.Circuit where
 
 import Control.Monad
 import Control.Applicative

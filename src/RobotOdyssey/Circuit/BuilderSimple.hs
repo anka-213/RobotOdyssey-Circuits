@@ -6,7 +6,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
-module CircuitBuilderSimple where
+module RobotOdyssey.Circuit.BuilderSimple where
+
 
 -- import Debug.Trace
 -- import qualified Data.ByteString as B
@@ -18,7 +19,7 @@ import Data.Map.Lazy (Map)
 import Control.Monad.State.Lazy
 
 -- import NanoLens
-import RobodyCircuit
+import RobotOdyssey.Circuit
 -- import qualified CircuitBuilder
 
 -- import qualified Data.FixedList as FL
