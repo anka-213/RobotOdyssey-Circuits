@@ -25,7 +25,7 @@ import RobotOdyssey.Circuit
 -- import qualified Data.FixedList as FL
 import Data.FixedList (FixedList8)
 
-newtype SPtr = SPtr Int deriving (Eq, Show, Enum, Num, Ord)
+newtype SPtr = SPtr Int deriving (Eq, Show, Enum, Ord)
 
 type BState = FixedList8 GateState
 type MainInput = FixedList8 Input
@@ -62,9 +62,17 @@ data SGate =
 
 type Builder a = State BuilderStateSimple a
 
+-- * Use builder
+
+
+runBuilder :: Builder a -> (a, BuilderStateSimple)
+runBuilder x = runState x def
+
+-- * Internal stuff
+
 newOutput :: Builder SPtr
 newOutput = state $
-  \bs -> (bpos bs, bs {bpos = bpos bs + 1})
+  \bs -> (bpos bs, bs {bpos = succ $ bpos bs})
 
 newGate :: SPtr -> SGate -> Builder ()
 newGate n g = modify $ \bs -> bs {bGates = Map.insert n g (bGates bs)}
@@ -101,13 +109,117 @@ liftJoin1 f a = f >>= a
 liftJoin2 :: Monad m => (a1 -> a2 -> m a3) -> m a1 -> m a2 -> m a3
 liftJoin2 f a b = join $ f <$> a <*> b
 
--- | Given two gate builders, return an and-gate with initial out-state hot
-(&+&) :: Builder SPtr -> Builder SPtr -> Builder SPtr
-a &+& b = do
-  i1 <- a
-  i2 <- b
-  andGate I (GatePtr i1) (GatePtr i2)
--- a &&- b = andGate I <$> a <*> b
+-- | An 'IsInput' is either the output from builder or a builder itself
+class IsInput x where
+  toInputBuilder :: x -> Builder SInput
+
+instance IsInput (Builder SInput)  where
+  toInputBuilder = id
+
+instance IsInput (Builder SPtr) where
+  toInputBuilder = fmap GatePtr
+
+instance IsInput SInput where
+  toInputBuilder = pure
+
+instance IsInput SPtr where
+  toInputBuilder = pure . GatePtr
+
+-- | Binary gate with generic inputs (allows combining gates without explicit monad operations)
+binaryGateG :: (IsInput a, IsInput b) =>  (GateState -> SInput -> SInput -> Builder SPtr) ->
+               GateState -> a -> b -> Builder SPtr
+binaryGateG gateConstructor s i1 i2 = do
+  i1' <- toInputBuilder i1
+  i2' <- toInputBuilder i2
+  gateConstructor s i1' i2'
+
+andGateG, orGateG, xorGateG :: (IsInput a, IsInput b) => GateState -> a -> b -> Builder SPtr
+andGateG = binaryGateG andGate
+orGateG  = binaryGateG orGate
+xorGateG = binaryGateG xorGate
+
+notGateG :: IsInput a => GateState -> a -> Builder SPtr
+notGateG s i1 = do
+  i1' <- toInputBuilder i1
+  notGate s i1'
+
+-- * Infix Builder operators
+
+infixl 7 &+
+infixl 7 &-
+infixl 6 |-
+
+-- | Build an and-gate with hot output
+(&+) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
+(&+) = andGateG I
+
+-- | Build an and-gate with cold output
+(&-) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
+(&-) = andGateG I
+
+-- | Build an or-gate with hot output
+(|+) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
+(|+) = orGateG I
+
+-- | Build an or-gate with cold output
+(|-) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
+(|-) = orGateG I
+
+-- | Build an xor-gate with hot output
+(^+) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
+(^+) = xorGateG I
+
+-- | Build an xor-gate with cold output
+(^-) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
+(^-) = xorGateG I
+
+-- | Build a not-gate with hot output
+notOn :: (IsInput a) => a -> Builder SPtr
+notOn = notGateG I
+
+-- | Build a not-gate with cold output
+notOff :: (IsInput a) => a -> Builder SPtr
+notOff = notGateG O
+
+-- | Create a pointer to an external input
+i :: Int -> SInput
+i = External
+
+-- | Connect a connector to an external output.
+-- In case of multiple conectors connecting to the same wire,
+-- the last one will be used
+out :: IsInput a => a -> Builder ()
+out = undefined
+
+-- * Examples
+
+-- | Two alternative ways of writing (x & y) | z
+xAndYOrZ :: (IsInput x, IsInput y, IsInput z) => x -> y -> z -> Builder SPtr
+xAndYOrZ x y z = do
+  xy <- x &- y
+  xy |- z
+
+xAndYOrZ' :: (IsInput x, IsInput y, IsInput z) => x -> y -> z -> Builder SPtr
+xAndYOrZ' x y z = ( x &- y ) |- z
+
+
+
+
+
+
+
+
+
+
+{-
+
+
+
+
+
+
+
+
 
 
 
@@ -290,5 +402,7 @@ example = do
   i1 <- notGate O [0]
   newWire 3 [i1]
   return ()
+
+-}
 
 -}

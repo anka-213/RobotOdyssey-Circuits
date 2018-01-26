@@ -39,7 +39,7 @@ foldMapOf l f = getConst . l (Const . f)
 
 _right :: Traversal (Either l a) (Either l b) a b
 _right k (Right x) = Right <$> k x
-_right k (Left x) = pure (Left x)
+_right _ (Left x) = pure (Left x)
 
 -- | Lens through two different lenses
 throughBoth :: Traversal s t a b -> Traversal s' t' a b -> Traversal (s,s') (t,t') a b
