@@ -80,6 +80,7 @@ module Data.FixedList (
                       , last
                       , init
                       , unit
+                      , ix
                       , subLists
                       , createM
                       , fromFoldable
@@ -122,7 +123,7 @@ instance Show (Nil a) where
 
 -- | Just a restrictive typeclass. It makes sure ':.' only takes FixedLists as it's second parameter
 --  and makes sure the use of fromFoldable's in reverse, and init is safe.
-class (Applicative f, Traversable f, Monad f) => FixedList f
+class (Applicative f, Traversable f, Monad f, Ix f) => FixedList f
 instance FixedList f => FixedList (Cons f)
 instance FixedList Nil
 
@@ -176,6 +177,14 @@ fromFoldable t = sequenceA $ snd $ mapAccumL f (toList t) (pure ())
 fromFoldable' :: (Foldable f, Applicative g, Traversable g) => f a -> g a
 fromFoldable' a = fromJust $ fromFoldable a
 
+class Ix m where
+  -- | A lens to point at index
+  ix :: Functor f => Int -> (a -> f a) -> m a -> f (m a)
+
+instance FixedList f => Ix (Cons f) where
+  ix 0 f (a :. b) = (:. b) <$> f a
+  ix n f (a :. b) = (a :.) <$> ix (n-1) f b
+
 instance FixedList f => Functor (Cons f) where
   fmap f (a :. b) = f a :. fmap f b
 
@@ -194,6 +203,9 @@ instance FixedList f => Applicative (Cons f) where
   (f :. fs) <*> (x :. xs) = f x :. (fs <*> xs)
   -- (<*>) = ap
 
+
+instance Ix Nil where
+  ix _ f Nil = Nil <$ f (error "Index out of range")
 
 instance Functor Nil where
   fmap _ Nil = Nil

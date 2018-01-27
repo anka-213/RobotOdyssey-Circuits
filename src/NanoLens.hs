@@ -6,6 +6,7 @@ module NanoLens where
 import Data.Monoid
 import Control.Applicative
 import Control.Monad.Identity
+import Control.Monad.State.Class
 
 type Traversal s t a b = forall f. Applicative f => (a -> f b) -> s -> f t
 type Traversal' s a = Traversal s s a a
@@ -23,8 +24,18 @@ infixl 8 ^..
 (^..) :: s -> Traversal' s a -> [a]
 s ^.. l = toListOf l s
 
+infix 2 %=
+infix 2 .=
+
+(%=) :: MonadState s m => Traversal' s a -> (a -> a) -> m ()
+l %= f = modify $ over l f
+
+(.=) :: MonadState s m => Traversal' s a -> a -> m ()
+l .= f = l %= const f
+
 infixl 4 <$$>
 
+-- | Flipped version of fmap. Useful for constructing lenses.
 (<$$>) :: Functor f => f (a -> b) -> a -> f b
 f <$$> x = ($x) <$> f
 

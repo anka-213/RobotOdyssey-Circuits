@@ -8,12 +8,14 @@ module RobotOdyssey.Circuit.Builder where
 import qualified Data.ByteString.Char8 as B8
 import Data.Default.Class
 import Data.Monoid
+import Data.Word
 import Control.Monad.State.Lazy
 
 import NanoLens
 import RobotOdyssey.Circuit
 import qualified Data.FixedList as FL
 import Data.FixedList (FixedList8)
+
 
 data BuilderState = Bs {bpos:: Ptr, bState :: BState, bGates :: [Gate], bwires :: [Wire] }
 
@@ -110,10 +112,14 @@ xorGate = binaryGate Xor
 
 flopGate :: Bool -> Output -> Output -> Builder (Ptr, Ptr)
 flopGate isOn out1 out2 = do
+  let (s1,s2) = if isOn then (1,0) else (0,1)
+  flopGate' O O s1 s2 out1 out2
+
+flopGate' :: GateState -> GateState -> Word8 -> Word8 -> Output -> Output -> Builder (Ptr, Ptr)
+flopGate' is1 is2 s1 s2 out1 out2 = do
   i1 <- newInput 1
   i2 <- newInput 2
-  let (s1,s2) = if isOn then (1,0) else (0,1)
-  let gate = Flop (Input i1 O) (Input i2 O) s1 s2 out1 out2
+  let gate = Flop (Input i1 is1) (Input i2 is2) s1 s2 out1 out2
   buildGate gate
   return (i1, i2)
 

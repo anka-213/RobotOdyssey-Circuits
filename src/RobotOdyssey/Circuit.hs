@@ -420,6 +420,7 @@ printGate other = print other
 
 -- * Handling data
 
+-- | Returns a list of all nested ciruits inside a circuit.
 getNestedBlocks :: Either String Circuit -> [(Ptr, MainChunk)]
 getNestedBlocks = toListOf (_right . _mainChunk . _gates . traverse . _nested)
 
