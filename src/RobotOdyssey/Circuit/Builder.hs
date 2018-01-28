@@ -140,14 +140,14 @@ nestCircuit inner = do
   return inputs
 
 setInputState :: BState -> Builder ()
-setInputState bstate = do
+setInputState bstate =
   modify (\(Bs n _ g w) -> Bs n bstate g w)
 
 -- TODO: Nest, Put
 
 
 newWire :: Ptr -> [Ptr] -> Builder ()
-newWire input out = do
+newWire input out =
   buildWire $ Wire input out
 
 main :: IO ()
@@ -217,10 +217,13 @@ orSequence (s1:states) out = do
   i1 <- fst <$> orGate s1 O out
   foldM orStep i1 states
 
+
+-- | Cycles through the sound pattern on the key. Connect to the radio.
 solveL5P3 :: IO ()
 solveL5P3 = buildSaveCircuit "circuits/L5P3.CSV" $
   orLoop [I,O,O,I,I,O] [Ptr 0]
 
+-- | Just a 11-clock for suitable timing
 solveL5P4 :: IO ()
 -- solveL5P4 = buildSaveCircuit "circuits/L5P4.CSV" $ do
 solveL5P4 = buildSaveCircuit "c:\\Users\\skyio\\D-Fend Reloaded\\VirtualHD\\Robot Odyssey\\L5P4.CSV" $ do
@@ -239,8 +242,13 @@ solveL5P6 = buildSaveCircuit "c:\\Users\\skyio\\D-Fend Reloaded\\VirtualHD\\Robo
   _ <- orSequence (replicate 7 I ++ [O]) [Ptr 3]
   orLoop [I,I,I,O,O,O,O] [Ptr 7]
 
+-- | Moving through the "maze".
+-- Connect the first part to rightward movement,
+-- the second part to leftward movement and
+-- if neither is active, move the robot downward.
 solveL5P7 :: IO ()
 solveL5P7 = solveL5P7a >> solveL5P7b
+
 solveL5P7a :: IO ()
 solveL5P7a = buildSaveCircuit "c:\\Users\\skyio\\D-Fend Reloaded\\VirtualHD\\Robot Odyssey\\SOLUT1.CSV" $ do
   let right = [Ptr 7]
@@ -268,7 +276,7 @@ getOrig = do
   return b
 
 nestedChunks :: Traversal' Circuit (Ptr,MainChunk)
-nestedChunks = (_mainChunk._gates.traverse._nested)
+nestedChunks = _mainChunk._gates.traverse._nested
 
 {-
 -- Original

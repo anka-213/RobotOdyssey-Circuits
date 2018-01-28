@@ -53,6 +53,7 @@ module RobotOdyssey.Circuit.BuilderSimple where
 -- import qualified Data.ByteString.Char8 as B8
 import Data.Default.Class
 -- import Data.Monoid
+import Data.Foldable (toList)
 import qualified Data.Map.Lazy as Map
 import Data.Map.Lazy (Map)
 import Control.Monad.State.Lazy
@@ -141,46 +142,80 @@ type Builder a = State BuilderStateSimple a
 runBuilder :: Builder a -> (a, BuilderStateSimple)
 runBuilder x = runState x def
 
+-- | Extract the list of circuits from a SimpleBuilder
+execBuilder :: Builder a -> BuilderStateSimple
+execBuilder x = execState x def
+
+-- | Build a chunk
+buildChunk :: Builder a -> MainChunk
+buildChunk = CB.buildChunk . generateABuilder . execBuilder
+
+-- | Build a circuit
+buildCircuit :: Builder a -> Circuit
+buildCircuit = CB.buildCircuit . generateABuilder . execBuilder
+
 -- | Convert a simple builder into a builder
 generateABuilder :: BuilderStateSimple -> CB.Builder ()
-generateABuilder (Bss _pos _state gates _wires) = mdo
-    ans <- Map.traverseWithKey (generateGate gates . ptrsFrom ans) gates
+generateABuilder (Bss _pos _state gates wires) = mdo
+    ans <- Map.traverseWithKey (generateGate gates . allPtrsFrom ans) gates
+    mapM_ (uncurry CB.newWire) $ externalTo ans
     return ()
   where
     -- | A list of pointers from a gate
-    sptrsFrom :: SPtr -> [(SPtr,Int)]
+    sptrsFrom :: SInput -> [(SPtr,Int)]
     sptrsFrom ptr = [ (k,n) |
                       (k, v) <- Map.toList gates,
-                      (n,inN) <- zip [0,1] $ toListOf (_sgateInput._sinputGPtr) v,
+                      (n,inN) <- zip [0,1] $ toListOf (_sgateInput) v,
                       inN == ptr]
 
     -- | List of all pointers from a specific gate
-    ptrsFrom :: Map SPtr [Ptr] -> SPtr -> [Ptr]
-    ptrsFrom ans key = map (findPtr ans) $ sptrsFrom key
+    allPtrsFrom :: Map SPtr [Ptr] -> SPtr -> ([Ptr],[Ptr])
+    allPtrsFrom mp key = (ptrsFrom mp (GatePtr key 0), ptrsFrom mp (GatePtr key 1))
+
+    ptrsFrom :: Map SPtr [Ptr] -> SInput -> [Ptr]
+    ptrsFrom ans key = map (findPtr ans) (sptrsFrom key) ++ externalFrom key
+
+    -- | External pointers from a gate
+    externalFrom :: SInput -> [Ptr]
+    externalFrom a = [ n | (n,x) <- zip [0..] $ toList wires, a == x]
+
+    -- | Connections from an external input
+    externalTo :: Map SPtr [Ptr] -> [(Ptr, [Ptr])]
+    externalTo ans =
+      [ (inp, out)
+      | ext <- [0 .. 7]
+      , let ex1 = External ext
+      , let inp = fromIntegral ext
+      , let out = ptrsFrom ans ex1
+      , not $ null out
+      ]
 
     findPtr :: Map SPtr [Ptr] -> (SPtr, Int) -> Ptr
     findPtr mp (k, ix) = (mp Map.! k) !! ix
 
+  -- TODO: External output state (BState)
+
 -- | Given a 'SGate' and some additional data, builds a 'Gate' and returns
 --   a list of pointers to its inputs
 generateGate :: GateMap
-             -> [Ptr]          -- ^ A list of all gates that point from this gate
+             -> ([Ptr],[Ptr])  -- ^ A list of all gates that point from this gate
              -> SGate          -- ^ The gate to generate
              -> CB.Builder [Ptr]
-generateGate gm outs (SAnd _ p1 p2) = makeGate CB.andGate gm outs p1 p2
-generateGate gm outs (SOr _ p1 p2)  = makeGate CB.orGate gm outs p1 p2
-generateGate gm outs (SXor _ p1 p2) = makeGate CB.xorGate gm outs p1 p2
-generateGate gm outs (SNot _ p1) = do
+generateGate gm (o1,[]) (SAnd _ p1 p2) = makeGate CB.andGate gm o1 p1 p2
+generateGate gm (o1,[]) (SOr _ p1 p2)  = makeGate CB.orGate gm o1 p1 p2
+generateGate gm (o1,[]) (SXor _ p1 p2) = makeGate CB.xorGate gm o1 p1 p2
+generateGate gm (o1,[]) (SNot _ p1) = do
   let gs1 = findState gm p1
-  i1 <- CB.notGate gs1 outs
+  i1 <- CB.notGate gs1 o1
   return [i1]
-generateGate gm outs (SFlipFlop s1 s2 p1 p2) = do
+generateGate gm (o1,o2) (SFlipFlop s1 s2 p1 p2) = do
   let gs1 = findState gm p1
   let gs2 = findState gm p2
   let s1' = toEnum $ fromEnum s1
   let s2' = toEnum $ fromEnum s2
-  (i1, i2) <- CB.flopGate' gs1 gs2 s1' s2' outs outs
+  (i1, i2) <- CB.flopGate' gs1 gs2 s1' s2' o1 o2
   return [i1,i2]
+generateGate _ _ _ = error "generateGate: Invalid output"
 
 type GateMaker = GateState -> GateState -> Output -> CB.Builder (Ptr, Ptr)
 
@@ -206,7 +241,7 @@ newOutput = state $
   \bs -> (bpos bs, bs {bpos = succ $ bpos bs})
 
 newGate :: SPtr -> SGate -> Builder ()
-newGate n g = modify $ \bs -> bs {bGates = Map.insert n g (bGates bs)}
+newGate n g = _bgates %= Map.insert n g
 
 binaryGate :: (GateState -> SInput -> SInput -> SGate) ->
                GateState -> SInput -> SInput -> Builder SPtr
@@ -291,7 +326,10 @@ flopGateG = binaryGateG . flopGate
 
 infixl 7 &+
 infixl 7 &-
+infixl 6 |+
 infixl 6 |-
+infixl 4 \-\
+infixl 4 /-/
 
 -- | Build an and-gate with hot output
 (&+) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
@@ -299,7 +337,7 @@ infixl 6 |-
 
 -- | Build an and-gate with cold output
 (&-) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
-(&-) = andGateG I
+(&-) = andGateG O
 
 -- | Build an or-gate with hot output
 (|+) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
@@ -307,7 +345,7 @@ infixl 6 |-
 
 -- | Build an or-gate with cold output
 (|-) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
-(|-) = orGateG I
+(|-) = orGateG O
 
 -- | Build an xor-gate with hot output
 (^+) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
@@ -315,7 +353,7 @@ infixl 6 |-
 
 -- | Build an xor-gate with cold output
 (^-) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
-(^-) = xorGateG I
+(^-) = xorGateG O
 
 -- | Build a not-gate with hot output
 notOn :: (IsInput a) => a -> Builder SPtr
@@ -331,7 +369,7 @@ notOff = notGateG O
 
 -- | Build a flip-flop-gate with the right output on
 (/-/) :: (IsInput a, IsInput b) => a -> b -> Builder (SInput, SInput)
-(/-/) = flopGateG I O
+(/-/) = flopGateG O I
 
 -- | Create a pointer to an external input
 i :: Int -> SInput
@@ -344,6 +382,12 @@ connectOut :: IsInput a => Int -> a -> Builder ()
 connectOut n i1 = do
   i1' <- toInputBuilder i1
   _bwires . FL.ix n .= i1'
+
+connectOut2 :: Int -> Int -> Builder (SInput, SInput) -> Builder ()
+connectOut2 n1 n2 b = do
+  (i1,i2) <- b
+  connectOut n1 i1
+  connectOut n2 i2
 
 -- * Examples
 
@@ -364,189 +408,36 @@ notClock = mdo
   return out
 
 
+-- | Sends out one tick a pulse when the wire goes from O to I
+edgeDetector :: IsInput x => x -> Builder SPtr
+edgeDetector i1 = notOn i1 &- i1
+
+-- | A toggle-flip-flop that switches state each time the input is pulsed
+tFlipFlop :: (IsInput x, IsInput y) => x -> y -> Builder (SInput, SInput)
+-- tFlipFlop outOff outOn = mdo
+tFlipFlop toggle reset = mdo
+  flopOff <- r2 |- reset
+  pulse <- edgeDetector toggle
+  r2 <- pulse &- outOn
+  (outOn, outOff) <- flopOn /-/ flopOff
+  flopOn <- pulse &- outOff
+
+  return (outOff, outOn)
 
 
+-- | A toggle-flip-flop that switches state each time the input is pulsed
+tFlipFlop' :: (IsInput x, IsInput y) => x -> y -> Builder (SInput, SInput)
+-- tFlipFlop outOff outOn = mdo
+tFlipFlop' toggle reset = mdo
+  pulse <- edgeDetector toggle
+  flopOff <- (pulse &- outOn) |- reset
+  flopOn <- pulse &- outOff
+  (outOn, outOff) <- flopOn /-/ flopOff
+
+  return (outOff, outOn)
+
+printTFlop :: IO ()
+printTFlop = printCircuit $ buildCircuit  $  connectOut2 3 4 $ tFlipFlop (i 1) (i 2)
 
 
-
-
-{-
-
-
-buildChunk :: Builder a -> MainChunk
-buildChunk b = makeChunk $ execState b def
-
-buildCircuit :: Builder a -> Circuit
-buildCircuit b = makeCircuit $ execState b def
-
--- | The input/output of the entire circuit
-mainInput :: BState -> MainInput
-mainInput states = Input <$> FL.fromFoldable' [0..7] <*> states
-
-makeChunk :: BuilderState -> MainChunk
-makeChunk (Bss _ input gates wires) = MainChunk (mainInput input) (reverse gates) (reverse wires)
-
-makeCircuit :: BuilderState -> Circuit
-makeCircuit bs = Circuit (makeChunk bs) (makeMeta bs)
-
-makeMeta :: BuilderState -> MetaData
-makeMeta (Bss (Ptr pos) _ gates wires) = MetaData (findInOut gates wires) sizeTotal emptyDocs
-  where
-  gateSize = fromIntegral pos
-  wireSize = size wires
-  sizeTotal = gateSize + fromIntegral wireSize
-
-findInOut :: [Gate] -> [Wire] -> [InOrOut]
-findInOut gates wires = inOrOut <$> [0..7]
-  where
-    -- debug = trace "in" $ traceShow inputs $ trace "out" $ traceShow outputs $ undefined
-    inOrOut n | elem (Ptr n) inputs  = In
-              | elem (Ptr n) outputs = Out
-              | otherwise            = Neither
-    gateInputs = toListOf (traverse . _input . _input_ptr) gates
-    gateOutputs = toListOf (traverse . _output . traverse) gates
-    wireInputs = wireFrom <$> wires
-    wireOutputs = concat $ wireTo <$> wires
-    outputs = gateOutputs ++ wireOutputs
-    inputs = gateInputs ++ wireInputs
-
-emptyDocs :: Description
-emptyDocs = (B8.replicate 18 ' ', [B8.pack (show n) <> B8.replicate 33 ' ' | n <- [1..8::Int]])
-
-
-newInput :: Int -> Builder Ptr
-newInput nr = (+fromIntegral nr) <$> gets bpos
-
-putGate :: Gate -> Builder ()
-putGate gate = do
-  (Bss (Ptr pos) inputs gates wires) <- get
-  put $ Bss (Ptr $ pos + size gate) inputs (gate:gates) wires
-
-putWire :: Wire -> Builder ()
-putWire wire = do
-  (Bss (Ptr pos) inputs gates wires) <- get
-  put $ Bss (Ptr $ pos + size wire) inputs gates (wire:wires)
-
--- | Given list of output pointers, builds a not gate
---   and returns a pointer to its input
-notGate :: GateState -> Output -> Builder Ptr
-notGate istate out = do
-  i1 <- newInput 1
-  let gate = Not (Input i1 istate) out
-  putGate gate
-  return i1
-
-binaryGate :: (Input -> Input -> Output -> Gate)
-           -> GateState -> GateState -> Output -> Builder (Ptr, Ptr)
-binaryGate constructor i1state i2state out = do
-  i1 <- newInput 1
-  i2 <- newInput 2
-  putGate $ constructor (Input i1 i1state) (Input i2 i2state) out
-  return (i1, i2)
-
-
-andGate, orGate, xorGate :: GateState -> GateState -> Output -> Builder (Ptr, Ptr)
-andGate = binaryGate And
-orGate = binaryGate Or
-xorGate = binaryGate Xor
-
-flopGate :: Bool -> Output -> Output -> Builder (Ptr, Ptr)
-flopGate isOn out1 out2 = do
-  i1 <- newInput 1
-  i2 <- newInput 2
-  let (s1,s2) = if isOn then (1,0) else (0,1)
-  let gate = Flop (Input i1 O) (Input i2 O) s1 s2 out1 out2
-  putGate gate
-  return (i1, i2)
-
-nestedCircuit :: Builder a -> Builder (FixedList8 Ptr)
-nestedCircuit inner = do
-  startPos <- newInput 0
-  inputs <- mapM newInput $ FL.fromFoldable' [1..8]
-  let gate = Nested startPos (buildChunk inner)
-  putGate gate
-  return inputs
-
--- TODO: Nest, Put
-
-
-newWire :: Ptr -> [Ptr] -> Builder ()
-newWire input out = do
-  putWire $ Wire input out
-
-main :: IO ()
-main = printMainChunk $ buildChunk $ example
-
-printBuildChunk :: Builder a -> IO ()
-printBuildChunk = printMainChunk . buildChunk
-
-printBuildCircuit :: Builder a -> IO ()
-printBuildCircuit = printCircuit . buildCircuit
-
--- * Examples
-
--- | A clock that sends signals to specified output
-clock :: Output -> Builder ()
-clock out = mdo
-  i1 <- notGate O (i1:out)
-  return ()
-
--- | clockN n out genereates a clock of length 2*n+1 ticks
-clockN :: Int -> Output -> Builder ()
-clockN n out = mdo
-  i1 <- notGate O (iN : out)
-  iN <- foldM (\iK k -> notGate (if even k then O else I) [iK]) i1 [1..2*n]
-  return ()
-
--- | Sends out a pulse when the newWire goes from O to I
-edgeDetector :: Output -> Builder Output
-edgeDetector out = mdo
-  i1' <- notGate O [i1]
-  (i1,i2) <- andGate O I out
-  return [i1', i2]
-
-tFlipFlop :: Output -> Output -> Builder (Output, Output)
-tFlipFlop outOff outOn = mdo
-  (r2, reset) <- orGate O O [flopOff]
-  toggle <- edgeDetector [andOff1, andOn1]
-  (andOn1, andOn2) <- andGate O O [r2]
-  (flopOn, flopOff) <- flopGate False (andOn2:outOn) (andOff2:outOff)
-  (andOff1, andOff2) <- andGate O O [flopOn]
-
-  return (toggle, [reset])
-
-tFlipFlopCircuit :: MainChunk
-tFlipFlopCircuit = buildChunk $ do
-  (toggle,reset) <- tFlipFlop [4] [5]
-  newWire 0 toggle
-  newWire 1 reset
-
-getOrig :: IO MainChunk
-getOrig = do
-  [_,b,_,_] <- map snd . toListOf (_mainChunk._gates.traverse._nested) . getRight <$> parseFile "circuits/builtin/4BITCNTR.CSV"
-  return b
-
-nestedChunks :: Traversal' Circuit (Ptr,MainChunk)
-nestedChunks = (_mainChunk._gates.traverse._nested)
-
-{-
--- Original
-[Input (Ptr 0) I,Input (Ptr 1) O,Input (Ptr 2) O,Input (Ptr 3) O,Input (Ptr 4) I,Input (Ptr 5) O,Input (Ptr 6) O,Input (Ptr 7) O]
-Or (Input (Ptr 9) O) (Input (Ptr 10) O) [Ptr 35]
-Not (Input (Ptr 15) I) [Ptr 20]
-And (Input (Ptr 20) O) (Input (Ptr 21) I) [Ptr 49,Ptr 28]
-And (Input (Ptr 28) O) (Input (Ptr 29) O) [Ptr 9]
-Flop (Input (Ptr 34) O) (Input (Ptr 35) O) 0 1 [Ptr 29,Ptr 5] [Ptr 50,Ptr 4]
-And (Input (Ptr 49) O) (Input (Ptr 50) I) [Ptr 34]
-Wire {wireFrom = Ptr 0, wireTo = [Ptr 15,Ptr 21]}
-Wire {wireFrom = Ptr 1, wireTo = [Ptr 10]}
--}
-
-example :: Builder ()
-example = do
-  i1 <- notGate O [0]
-  newWire 3 [i1]
-  return ()
-
-
--}
+-- * Pretty printing
