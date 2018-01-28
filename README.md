@@ -153,5 +153,5 @@ Here is the same circuit again, this time using `BuilderSimple`:
 
 # Getting the game
 
-Robot Odyssey can be found on various abandonware websites (for example [here](https://www.myabandonware.com/game/robot-odyssey-6g)). Run the game in [dosbox](https://www.dosbox.com/) and set the number of cycles to ~300 to get a reasonable speed.
+Robot Odyssey can be found on various abandonware websites. Run the game in [dosbox](https://www.dosbox.com/) and set the number of cycles to ~300 to get a reasonable speed.
 
