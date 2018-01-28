@@ -5,13 +5,13 @@ A monadic circuit builder where each component return a pointer
 to its output. This is reversed from 'RobotOdyssey.Circuit.Builder'
 where each component takes a list of output and return its inputs.
 
-The easiest way to build a circuit is using the '(&+)', etc. combinators.
+The easiest way to build a circuit is using the '(&+&)', etc. combinators.
 (see section ???)
 The "+"/"-" signs says if the output is initially hot or cold.
 
 For example:
 
-> circuit = connectOut 3 $ i 1 &- i 2
+> circuit = connectOut 3 $ i 1 &-& i 2
 
 creates a circuit that connects the first and second input of the circuit
 to the inputs of an and-gate and the third one to its output.
@@ -324,28 +324,28 @@ flopGateG = binaryGateG . flopGate
 
 -- * Infix Builder operators
 
-infixl 7 &+
-infixl 7 &-
-infixl 6 |+
-infixl 6 |-
+infixl 7 &+&
+infixl 7 &-&
+infixl 6 |+|
+infixl 6 |-|
 infixl 4 \-\
 infixl 4 /-/
 
 -- | Build an and-gate with hot output
-(&+) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
-(&+) = andGateG I
+(&+&) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
+(&+&) = andGateG I
 
 -- | Build an and-gate with cold output
-(&-) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
-(&-) = andGateG O
+(&-&) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
+(&-&) = andGateG O
 
 -- | Build an or-gate with hot output
-(|+) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
-(|+) = orGateG I
+(|+|) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
+(|+|) = orGateG I
 
 -- | Build an or-gate with cold output
-(|-) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
-(|-) = orGateG O
+(|-|) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
+(|-|) = orGateG O
 
 -- | Build an xor-gate with hot output
 (^+) :: (IsInput a, IsInput b) => a -> b -> Builder SPtr
@@ -394,11 +394,11 @@ connectOut2 n1 n2 b = do
 -- | Two alternative ways of writing (x & y) | z
 xAndYOrZ :: (IsInput x, IsInput y, IsInput z) => x -> y -> z -> Builder SPtr
 xAndYOrZ x y z = do
-  xy <- x &- y
-  xy |- z
+  xy <- x &-& y
+  xy |-| z
 
 xAndYOrZ' :: (IsInput x, IsInput y, IsInput z) => x -> y -> z -> Builder SPtr
-xAndYOrZ' x y z = ( x &- y ) |- z
+xAndYOrZ' x y z = ( x &-& y ) |-| z
 
 -- | A 3-clock made of not-gates.
 -- Example of gate cycles
@@ -410,17 +410,17 @@ notClock = mdo
 
 -- | Sends out one tick a pulse when the wire goes from O to I
 edgeDetector :: IsInput x => x -> Builder SPtr
-edgeDetector i1 = notOn i1 &- i1
+edgeDetector i1 = notOn i1 &-& i1
 
 -- | A toggle-flip-flop that switches state each time the input is pulsed
 tFlipFlop :: (IsInput x, IsInput y) => x -> y -> Builder (SInput, SInput)
 -- tFlipFlop outOff outOn = mdo
 tFlipFlop toggle reset = mdo
-  flopOff <- r2 |- reset
+  flopOff <- r2 |-| reset
   pulse <- edgeDetector toggle
-  r2 <- pulse &- outOn
+  r2 <- pulse &-& outOn
   (outOn, outOff) <- flopOn /-/ flopOff
-  flopOn <- pulse &- outOff
+  flopOn <- pulse &-& outOff
 
   return (outOff, outOn)
 
@@ -430,10 +430,9 @@ tFlipFlop' :: (IsInput x, IsInput y) => x -> y -> Builder (SInput, SInput)
 -- tFlipFlop outOff outOn = mdo
 tFlipFlop' toggle reset = mdo
   pulse <- edgeDetector toggle
-  flopOff <- (pulse &- outOn) |- reset
-  flopOn <- pulse &- outOff
+  flopOff <- (pulse &-& outOn) |-| reset
+  flopOn <- pulse &-& outOff
   (outOn, outOff) <- flopOn /-/ flopOff
-
   return (outOff, outOn)
 
 printTFlop :: IO ()
