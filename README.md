@@ -16,16 +16,18 @@ which can then be "pretty"-printed using the function `printCircuit`.
 
 For example, the following program (found in `examples/BasicRead.hs`):
 
-    import qualified RobotOdyssey.Circuit as C
+```haskell
+import qualified RobotOdyssey.Circuit as C
 
-    main :: IO ()
-    main = do
-      readPrintFile "resources/circuits/builtin/RSFLOP.CSV"
+main :: IO ()
+main = do
+  readPrintFile "resources/circuits/builtin/RSFLOP.CSV"
 
-    readPrintFile :: FilePath -> IO ()
-    readPrintFile file = do
-      circuit <- C.parseFile file
-      C.printErrCircuit circuit
+readPrintFile :: FilePath -> IO ()
+readPrintFile file = do
+  circuit <- C.parseFile file
+  C.printErrCircuit circuit
+```
 
 would result in the following output
 
@@ -76,35 +78,36 @@ There are two main ways of building circuits. Both are monadic builders, that sh
 
 Here is a program that generates the circuit above using `Builder`:
 
+```haskell
+{-# LANGUAGE RecursiveDo #-}
+import RobotOdyssey.Circuit
+import RobotOdyssey.Circuit.Builder
 
-    {-# LANGUAGE RecursiveDo #-}
-    import RobotOdyssey.Circuit
-    import RobotOdyssey.Circuit.Builder
+-- | Sends out one tick a pulse when the wire goes from O to I
+edgeDetector :: Output -> Builder Output
+edgeDetector out = mdo
+  i1' <- notGate O [i1]
+  (i1,i2) <- andGate I O out
+  return [i1', i2]
 
-    -- | Sends out one tick a pulse when the wire goes from O to I
-    edgeDetector :: Output -> Builder Output
-    edgeDetector out = mdo
-      i1' <- notGate O [i1]
-      (i1,i2) <- andGate I O out
-      return [i1', i2]
+-- | A toggle-flip-flop that switches state each time the input is pulsed
+tFlipFlop :: Output -> Output -> Builder (Output, Output)
+tFlipFlop outOff outOn = mdo
+  (r2, reset) <- orGate O O [flopOff]
+  toggle <- edgeDetector [andOff1, andOn1]
+  (andOn1, andOn2) <- andGate O O [r2]
+  (flopOn, flopOff) <- flopGate False (andOn2:outOn) (andOff2:outOff)
+  (andOff1, andOff2) <- andGate O I [flopOn]
+  return (toggle, [reset])
 
-    -- | A toggle-flip-flop that switches state each time the input is pulsed
-    tFlipFlop :: Output -> Output -> Builder (Output, Output)
-    tFlipFlop outOff outOn = mdo
-      (r2, reset) <- orGate O O [flopOff]
-      toggle <- edgeDetector [andOff1, andOn1]
-      (andOn1, andOn2) <- andGate O O [r2]
-      (flopOn, flopOff) <- flopGate False (andOn2:outOn) (andOff2:outOff)
-      (andOff1, andOff2) <- andGate O I [flopOn]
-      return (toggle, [reset])
-
-    -- | Run the builder above to actually generate a circuit.
-    tFlipFlopCircuit :: Circuit
-    tFlipFlopCircuit = buildCircuit $ do
-      (toggle,reset) <- tFlipFlop [4] [5]
-      newWire 0 toggle
-      newWire 1 reset
-      setInputState $ FL.fromFoldable' [O,O,O,O,I,O,O,O]
+-- | Run the builder above to actually generate a circuit.
+tFlipFlopCircuit :: Circuit
+tFlipFlopCircuit = buildCircuit $ do
+  (toggle,reset) <- tFlipFlop [4] [5]
+  newWire 0 toggle
+  newWire 1 reset
+  setInputState $ FL.fromFoldable' [O,O,O,O,I,O,O,O]
+```
 
 
 ### BuilderSimple
@@ -114,33 +117,35 @@ This version also supports direct nesting of circuits without using monadic bind
 
 Here is the same circuit again, this time using `BuilderSimple`:
  
-    {-# LANGUAGE RecursiveDo #-}
-    import RobotOdyssey.Circuit
-    import RobotOdyssey.Circuit.BuilderSimple
-    
-    -- | Sends out one tick a pulse when the wire goes from O to I
-    edgeDetector :: IsInput x => x -> Builder SPtr
-    edgeDetector i1 = notOn i1 &-& i1
+```haskell
+{-# LANGUAGE RecursiveDo #-}
+import RobotOdyssey.Circuit
+import RobotOdyssey.Circuit.BuilderSimple
 
-    -- | A toggle-flip-flop that switches state each time the input is pulsed
-    tFlipFlop :: (IsInput x, IsInput y) => x -> y -> Builder (SInput, SInput)
-    tFlipFlop toggle reset = mdo
-      flopOff <- r2 |-| reset
-      pulse <- edgeDetector toggle
-      r2 <- pulse &-& outOn
-      (outOn, outOff) <- flopOn /-/ flopOff
-      flopOn <- pulse &-& outOff
-      return (outOff, outOn)
+-- | Sends out one tick a pulse when the wire goes from O to I
+edgeDetector :: IsInput x => x -> Builder SPtr
+edgeDetector i1 = notOn i1 &-& i1
 
-    -- | A version of the above that uses nesting
-    tFlipFlop' :: (IsInput x, IsInput y) => x -> y -> Builder (SInput, SInput)
-    tFlipFlop' toggle reset = mdo
-      pulse <- edgeDetector toggle
-      (outOn, outOff) <- (pulse &-& outOff) /-/ ((pulse &-& outOn) |-| reset)
-      return (outOff, outOn)
+-- | A toggle-flip-flop that switches state each time the input is pulsed
+tFlipFlop :: (IsInput x, IsInput y) => x -> y -> Builder (SInput, SInput)
+tFlipFlop toggle reset = mdo
+  flopOff <- r2 |-| reset
+  pulse <- edgeDetector toggle
+  r2 <- pulse &-& outOn
+  (outOn, outOff) <- flopOn /-/ flopOff
+  flopOn <- pulse &-& outOff
+  return (outOff, outOn)
 
-    tFlipFlopCircuit :: Circuit
-    tFlipFlopCircuit = buildCircuit $ connectOut2 3 4 $ tFlipFlop (i 1) (i 2)
+-- | A version of the above that uses nesting
+tFlipFlop' :: (IsInput x, IsInput y) => x -> y -> Builder (SInput, SInput)
+tFlipFlop' toggle reset = mdo
+  pulse <- edgeDetector toggle
+  (outOn, outOff) <- (pulse &-& outOff) /-/ ((pulse &-& outOn) |-| reset)
+  return (outOff, outOn)
+
+tFlipFlopCircuit :: Circuit
+tFlipFlopCircuit = buildCircuit $ connectOut2 3 4 $ tFlipFlop (i 1) (i 2)
+```
 
 # Future work
 
@@ -153,5 +158,5 @@ Here is the same circuit again, this time using `BuilderSimple`:
 
 # Getting the game
 
-Robot Odyssey can be found on various abandonware websites. Run the game in [dosbox](https://www.dosbox.com/) and set the number of cycles to ~300 to get a reasonable speed.
+Robot Odyssey can be found on various abandonware websites (for example [here](http://www.abandonia.com/en/games/828/Robot+Odyssey.html)). Run the game in [dosbox](https://www.dosbox.com/) and set the number of cycles to ~300 to get a reasonable speed.
 
